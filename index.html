@@ -1,0 +1,336 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Trophy, Gauge, CloudRain, Thermometer, Settings, FastForward, Flag, ChevronRight, User } from 'lucide-react';
+
+const App = () => {
+  // --- Estados de la Temporada ---
+  const [currentRace, setCurrentRace] = useState(1);
+  const totalRaces = 10;
+  const [totalPoints, setTotalPoints] = useState(0);
+  const [seasonOver, setSeasonOver] = useState(false);
+  
+  // --- Estados de la Carrera ---
+  const [raceStarted, setRaceStarted] = useState(false);
+  const [raceFinished, setRaceFinished] = useState(false);
+  const [lap, setLap] = useState(1);
+  const totalLaps = 15;
+  const [weather, setWeather] = useState('Soleado');
+  const [trackCondition, setTrackCondition] = useState('Seco');
+  const [event, setEvent] = useState(null);
+  const [messages, setMessages] = useState([{ text: "Bienvenidos, Lewis y Charles. La temporada comienza.", type: "system" }]);
+
+  // --- Estado de los Pilotos ---
+  const initialDriverState = (name, initialPos) => ({
+    name,
+    position: initialPos,
+    tireHealth: 100,
+    tireType: 'Soft',
+    fuel: 100,
+    engineMode: 'Balanceado',
+    isOut: false
+  });
+
+  const [drivers, setDrivers] = useState({
+    hamilton: initialDriverState('Lewis Hamilton', 2),
+    leclerc: initialDriverState('Charles Leclerc', 3)
+  });
+
+  const pointsSystem = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
+
+  const addMessage = (text, type) => {
+    setMessages(prev => [{ text, type }, ...prev].slice(0, 6));
+  };
+
+  const startNextRace = () => {
+    setLap(1);
+    setDrivers({
+      hamilton: initialDriverState('Lewis Hamilton', Math.floor(Math.random() * 3) + 1),
+      leclerc: initialDriverState('Charles Leclerc', Math.floor(Math.random() * 3) + 3)
+    });
+    setWeather('Soleado');
+    setTrackCondition('Seco');
+    setRaceStarted(true);
+    setRaceFinished(false);
+    addMessage(`Gran Premio ${currentRace} - ¡Luces fuera!`, "success");
+  };
+
+  const finishRace = useCallback(() => {
+    const pointsH = pointsSystem[drivers.hamilton.position - 1] || 0;
+    const pointsL = pointsSystem[drivers.leclerc.position - 1] || 0;
+    setTotalPoints(prev => prev + pointsH + pointsL);
+    setRaceFinished(true);
+    setRaceStarted(false);
+    
+    if (currentRace >= totalRaces) setSeasonOver(true);
+  }, [drivers, currentRace]);
+
+  const simulateLap = useCallback(() => {
+    if (lap >= totalLaps) {
+      finishRace();
+      return;
+    }
+
+    setLap(prev => prev + 1);
+
+    // Clima dinámico
+    if (Math.random() < 0.1) {
+      const weathers = ['Soleado', 'Nublado', 'Lluvia Ligera', 'Lluvia Intensa'];
+      const newW = weathers[Math.floor(Math.random() * weathers.length)];
+      setWeather(newW);
+      setTrackCondition(newW.includes('Lluvia') ? 'Mojado' : 'Seco');
+      addMessage(`Condiciones: ${newW}`, "warning");
+    }
+
+    // Actualizar cada piloto
+    setDrivers(prev => {
+      const updated = { ...prev };
+      Object.keys(updated).forEach(key => {
+        const d = updated[key];
+        
+        // Desgaste y combustible
+        let wear = d.tireType === 'Soft' ? 12 : d.tireType === 'Medium' ? 8 : 5;
+        if (trackCondition === 'Mojado' && !['Inter', 'Wet'].includes(d.tireType)) wear *= 3;
+        if (d.engineMode === 'Push') wear *= 1.5;
+        d.tireHealth = Math.max(0, d.tireHealth - wear);
+        
+        let fuelCons = d.engineMode === 'Push' ? 8 : d.engineMode === 'Ahorro' ? 4 : 6;
+        d.fuel = Math.max(0, d.fuel - fuelCons);
+
+        // Rendimiento
+        let perf = 0;
+        const isCorrectTire = (trackCondition === 'Seco' && ['Soft', 'Medium', 'Hard'].includes(d.tireType)) ||
+                              (trackCondition === 'Mojado' && ['Inter', 'Wet'].includes(d.tireType));
+        if (!isCorrectTire) perf -= 4;
+        if (d.tireHealth < 20) perf -= 3;
+        if (d.engineMode === 'Push') perf += 2;
+
+        // Movimiento de posición
+        if (Math.random() < 0.2 + (perf * 0.1)) {
+          d.position = Math.max(1, d.position - 1);
+          if (Math.random() > 0.8) addMessage(`${d.name} está volando.`, "success");
+        } else if (Math.random() > 0.8 - (perf * 0.1)) {
+          d.position = Math.min(20, d.position + 1);
+        }
+      });
+      return updated;
+    });
+
+    if (Math.random() < 0.05 && !event) {
+      setEvent('Safety Car');
+      addMessage("¡SAFETY CAR! Mantengan posiciones.", "warning");
+      setTimeout(() => setEvent(null), 3000);
+    }
+  }, [lap, trackCondition, event, finishRace]);
+
+  const handlePitStop = (driverKey, newTire) => {
+    setDrivers(prev => ({
+      ...prev,
+      [driverKey]: {
+        ...prev[driverKey],
+        tireType: newTire,
+        tireHealth: 100,
+        position: Math.min(20, prev[driverKey].position + 3)
+      }
+    }));
+    addMessage(`Box para ${driverKey === 'hamilton' ? 'Lewis' : 'Charles'}.`, "system");
+  };
+
+  const updateEngine = (driverKey, mode) => {
+    setDrivers(prev => ({
+      ...prev,
+      [driverKey]: { ...prev[driverKey], engineMode: mode }
+    }));
+  };
+
+  return (
+    <div className="min-h-screen bg-black text-slate-100 p-4 font-sans">
+      {/* HUD Superior */}
+      <div className="max-w-6xl mx-auto flex justify-between items-center mb-6 bg-zinc-900/80 p-4 rounded-xl border border-zinc-800 backdrop-blur-md">
+        <div className="flex items-center gap-4">
+          <div className="w-10 h-10 bg-red-600 rounded flex items-center justify-center font-black italic">SF</div>
+          <div>
+            <h1 className="text-xl font-black tracking-tighter uppercase italic">Scuderia <span className="text-red-600">Ferrari</span></h1>
+            <p className="text-[10px] text-zinc-500 font-bold uppercase tracking-widest">Temporada: Carrera {currentRace}/10</p>
+          </div>
+        </div>
+        <div className="flex gap-10">
+          <div className="text-center">
+             <p className="text-[10px] text-zinc-500 uppercase font-bold">Puntos Temporada</p>
+             <p className="text-2xl font-black text-yellow-500">{totalPoints}</p>
+          </div>
+          <div className="text-center">
+             <p className="text-[10px] text-zinc-500 uppercase font-bold">Clima</p>
+             <p className="text-sm font-bold uppercase flex items-center gap-1">
+               <CloudRain size={14} className={trackCondition === 'Mojado' ? 'text-blue-400' : 'text-zinc-500'} />
+               {weather}
+             </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
+        
+        {/* PISTA VISUAL */}
+        <div className="lg:col-span-4 bg-zinc-900 p-6 rounded-2xl border border-zinc-800 relative overflow-hidden">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xs font-black uppercase tracking-[0.3em] text-zinc-500 italic">Live Track Map</h3>
+            <span className="text-xs font-mono text-red-500">Lap {lap}/{totalLaps}</span>
+          </div>
+          <div className="relative h-24 bg-zinc-950 rounded-full border-[8px] border-zinc-900 flex items-center shadow-inner">
+             {/* Línea de carrera */}
+             <div className="absolute inset-0 border-[1px] border-zinc-800 rounded-full m-4"></div>
+             
+             {/* Lewis Hamilton */}
+             <div 
+              className="absolute w-12 h-6 bg-red-600 rounded-sm flex flex-col items-center justify-center transition-all duration-1000 z-20 shadow-[0_0_20px_rgba(220,38,38,0.6)]"
+              style={{ left: `${(21 - drivers.hamilton.position) * 4.6}%`, top: '25%' }}
+             >
+               <span className="text-[8px] font-black leading-none">HAM</span>
+               <span className="text-[6px] opacity-80">44</span>
+             </div>
+
+             {/* Charles Leclerc */}
+             <div 
+              className="absolute w-12 h-6 bg-red-700 rounded-sm flex flex-col items-center justify-center transition-all duration-1000 z-20 shadow-[0_0_20px_rgba(185,28,28,0.6)]"
+              style={{ left: `${(21 - drivers.leclerc.position) * 4.6}%`, bottom: '25%' }}
+             >
+               <span className="text-[8px] font-black leading-none">LEC</span>
+               <span className="text-[6px] opacity-80">16</span>
+             </div>
+
+             {/* Rivales fantasma */}
+             {[1, 5, 10, 15, 20].map(p => (
+               <div key={p} className="absolute w-8 h-3 bg-zinc-800 rounded-full opacity-20" style={{ left: `${(21 - p) * 4.6}%`, top: '45%' }}></div>
+             ))}
+
+             {event && (
+               <div className="absolute inset-0 bg-yellow-600/10 flex items-center justify-center animate-pulse">
+                 <span className="text-yellow-500 font-black tracking-widest text-lg italic uppercase border-2 border-yellow-500 px-6 py-1">{event}</span>
+               </div>
+             )}
+          </div>
+        </div>
+
+        {/* CONTROLES DUALES */}
+        <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-6">
+          {['hamilton', 'leclerc'].map(key => {
+            const d = drivers[key];
+            const isHam = key === 'hamilton';
+            return (
+              <div key={key} className={`bg-zinc-900 rounded-2xl p-5 border-t-4 ${isHam ? 'border-red-600' : 'border-red-800 shadow-lg shadow-black/50'}`}>
+                <div className="flex justify-between items-start mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-zinc-800 flex items-center justify-center overflow-hidden border border-zinc-700">
+                      <User size={24} className={isHam ? 'text-red-500' : 'text-zinc-400'} />
+                    </div>
+                    <div>
+                      <p className="text-lg font-black italic uppercase leading-none">{d.name}</p>
+                      <p className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest mt-1">Status: P{d.position}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-mono text-zinc-500 uppercase">Tires</p>
+                    <p className={`text-sm font-black ${d.tireHealth < 30 ? 'text-red-500' : 'text-green-500'}`}>{d.tireHealth}%</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Motor */}
+                  <div className="bg-black/40 p-3 rounded-xl">
+                    <p className="text-[9px] font-black text-zinc-600 uppercase mb-2">Modo Motor</p>
+                    <div className="flex gap-1">
+                      {['Ahorro', 'Balanceado', 'Push'].map(m => (
+                        <button 
+                          key={m}
+                          disabled={!raceStarted || raceFinished}
+                          onClick={() => updateEngine(key, m)}
+                          className={`flex-1 py-2 rounded text-[9px] font-black transition-all ${d.engineMode === m ? 'bg-red-600 text-white' : 'bg-zinc-800 text-zinc-500 hover:bg-zinc-700'}`}
+                        >{m.toUpperCase()}</button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Parada en Boxes */}
+                  <div className="bg-black/40 p-3 rounded-xl">
+                    <p className="text-[9px] font-black text-zinc-600 uppercase mb-2 text-center italic">Llamar a Boxes (Pit Stop)</p>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button onClick={() => handlePitStop(key, 'Soft')} disabled={!raceStarted} className="bg-red-900/20 border border-red-600/30 py-1.5 rounded text-[9px] font-bold hover:bg-red-600">SOFT (🔴)</button>
+                      <button onClick={() => handlePitStop(key, 'Medium')} disabled={!raceStarted} className="bg-yellow-900/20 border border-yellow-600/30 py-1.5 rounded text-[9px] font-bold hover:bg-yellow-600">MED (🟡)</button>
+                      <button onClick={() => handlePitStop(key, 'Hard')} disabled={!raceStarted} className="bg-zinc-800 border border-zinc-700 py-1.5 rounded text-[9px] font-bold hover:bg-zinc-600">HARD (⚪)</button>
+                      <button onClick={() => handlePitStop(key, 'Inter')} disabled={!raceStarted} className="bg-green-900/20 border border-green-600/30 py-1.5 rounded text-[9px] font-bold hover:bg-green-600">INT (🟢)</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* PANEL DE CONTROL CENTRAL */}
+        <div className="space-y-4">
+          {!raceStarted && !raceFinished && !seasonOver && (
+            <button 
+              onClick={startNextRace}
+              className="w-full bg-red-600 py-8 rounded-2xl text-white font-black text-xl italic uppercase tracking-tighter hover:bg-red-700 transition-all shadow-[0_10px_30px_rgba(220,38,38,0.3)]"
+            >
+              Comenzar Carrera {currentRace}
+            </button>
+          )}
+
+          {raceStarted && (
+            <button 
+              onClick={simulateLap}
+              disabled={event === 'Safety Car'}
+              className="w-full bg-white text-black py-6 rounded-2xl font-black text-lg italic uppercase tracking-widest hover:bg-zinc-200 transition-all flex items-center justify-center gap-3 active:scale-95"
+            >
+              <FastForward size={24} /> Próxima Vuelta
+            </button>
+          )}
+
+          {raceFinished && (
+             <div className="bg-green-900/20 border border-green-500/50 p-6 rounded-2xl text-center animate-in zoom-in duration-300">
+                <Flag className="mx-auto text-green-500 mb-2" size={32} />
+                <h3 className="text-xl font-black italic">CHECKERED FLAG</h3>
+                <div className="my-4 text-xs font-bold text-zinc-400">
+                   <p>Lewis: P{drivers.hamilton.position}</p>
+                   <p>Charles: P{drivers.leclerc.position}</p>
+                </div>
+                <button 
+                  onClick={() => { setCurrentRace(prev => prev + 1); setRaceFinished(false); }}
+                  className="w-full bg-green-600 py-3 rounded-xl font-bold uppercase text-xs flex items-center justify-center gap-2 hover:bg-green-700"
+                >
+                  Continuar <ChevronRight size={16} />
+                </button>
+             </div>
+          )}
+
+          {seasonOver && (
+            <div className="bg-yellow-600/10 border-2 border-yellow-500 p-6 rounded-2xl text-center">
+               <Trophy className="mx-auto text-yellow-500 mb-2" size={40} />
+               <h3 className="text-xl font-black">TEMPORADA FINALIZADA</h3>
+               <p className="text-4xl font-black text-white my-4">{totalPoints} pts</p>
+               <button onClick={() => window.location.reload()} className="w-full bg-zinc-800 py-3 rounded-xl font-bold uppercase text-xs">Nueva Era</button>
+            </div>
+          )}
+
+          {/* RADIO DE EQUIPO */}
+          <div className="bg-zinc-900 rounded-2xl p-4 border border-zinc-800 h-64 overflow-hidden relative">
+             <div className="flex items-center gap-2 mb-3 border-b border-zinc-800 pb-2">
+                <div className="w-2 h-2 bg-red-600 rounded-full animate-pulse"></div>
+                <span className="text-[10px] font-black uppercase text-zinc-500 tracking-widest italic">Radio Command</span>
+             </div>
+             <div className="space-y-2 overflow-y-auto h-48 pr-2 custom-scrollbar">
+                {messages.map((m, i) => (
+                  <div key={i} className={`text-[10px] leading-tight ${m.type === 'error' ? 'text-red-400' : m.type === 'warning' ? 'text-yellow-400' : m.type === 'success' ? 'text-green-400' : 'text-zinc-400'}`}>
+                    <span className="opacity-40 font-mono mr-1">V.{lap}</span> {m.text}
+                  </div>
+                ))}
+             </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default App;
+
